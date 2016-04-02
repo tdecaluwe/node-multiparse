@@ -1,0 +1,31 @@
+{
+  "name": "multipart",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "A recursive stream parser for multipart HTTP messages",
+  "keywords": ["multipart", "form-data", "http", "parser"],
+  "readme": "README.md",
+  "author": {
+    "name": "Tom De Caluwé",
+    "email": "decaluwe.t@gmail.com"
+  },
+  "main": "multiparser.js",
+  "engines": {
+    "node": ">=4.0"
+  },
+  "scripts": {
+    "test": "istanbul cover _mocha"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tdecaluwe/multipart.git"
+  },
+  "dependencies": {
+    "content-type": "^1.0"
+  },
+  "devDependencies": {
+    "chai": "^3.5",
+    "mocha": "^2.4",
+    "istanbul": "^0.4"
+  }
+}
