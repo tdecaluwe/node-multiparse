@@ -47,12 +47,20 @@ describe('MultiParser', function () {
     parser.write(new Buffer(text));
     expect(count).to.equal(2);
   });
-  it('should close a message part when another boundary is encountered', function () {
+  it('should close the last part when the multipart message is closed', function () {
     var event;
     parser.output.on('part', function (part) {
       part.on('finish', function () { event = 'finish'; });
     });
     parser.write(new Buffer('\r\n--boundary\r\n\r\n\r\n--boundary--\r\n'));
+    expect(event).to.equal('finish');
+  });
+  it('should close a message part when another boundary is encountered', function () {
+    var event;
+    parser.output.on('part', function (part) {
+      part.on('finish', function () { event = 'finish'; });
+    });
+    parser.write(new Buffer('\r\n--boundary\r\n\r\n\r\n--boundary\r\nheader: value\r\n'));
     expect(event).to.equal('finish');
   });
   it('should parse boundaries without a trailing CRLF as body text', function () {

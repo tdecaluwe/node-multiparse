@@ -8,8 +8,6 @@ var EventEmitter = require('events');
 var HTTPParser = process.binding('http_parser').HTTPParser;
 
 var MultiParser = function (boundary) {
-  var parser = this;
-
   this.current = new Message();
 
   // Set up a path of arrays representing the parts of each of the ancestors of
@@ -21,8 +19,9 @@ var MultiParser = function (boundary) {
 
   // Initialize a parser for the root message.
   this.initialize();
-  this.part();
-  boundary && this.multi(new Buffer('\r\n--' + boundary));
+  if (boundary) {
+    this.multi(new Buffer('\r\n--' + boundary));
+  }
   this.buffer = new Buffer('');
   // Skip the headers.
   this.parser.execute(new Buffer('\r\n\r\n'));
@@ -95,11 +94,16 @@ MultiParser.prototype.multi = function (boundary) {
 }
 
 MultiParser.prototype.part = function () {
-  this.current = this.current.part();
+  this.current = this.path[this.path.length - 1].part();
+}
+
+MultiParser.prototype.trailer = function () {
+  this.current = this.path[this.path.length - 1].trailer();
 }
 
 /**
- * Close the current multipart message.
+ * Close the current multipart message. To be called when encountering the
+ * closing multipart boundary.
  */
 MultiParser.prototype.pop = function () {
   // The parser is currently in the body parsing state. This means we can
@@ -149,6 +153,7 @@ var onBoundary = function (chunk, boundary, start) {
       this.initialize();
       this.part();
     } else if (a === 45 && b === 45 && c === 13 && d === 10) {
+      this.trailer();
       this.pop();
       consumed += 4;
     } else {
@@ -239,6 +244,8 @@ MultiParser.prototype.end = function (chunk, encoding, callback) {
   if (chunk) {
     this.write(chunk, encoding, callback);
   }
+
+  this.current.end();
 
   if (this.path.length > 0) {
     this.emit('error', Error('Not all messages were closed'));
