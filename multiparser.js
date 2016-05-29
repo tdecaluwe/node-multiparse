@@ -7,6 +7,9 @@ var EventEmitter = require('events');
 
 var HTTPParser = process.binding('http_parser').HTTPParser;
 
+var singleNewline = new Buffer('\r\n');
+var doubleNewline = new Buffer('\r\n\r\n');
+
 var MultiParser = function (boundary) {
   var parser = this;
 
@@ -24,26 +27,23 @@ var MultiParser = function (boundary) {
   if (boundary) {
     this.multi(new Buffer('\r\n--' + boundary));
     // Skip the headers.
-    this.parser.execute(new Buffer('\r\n'));
+    this.parser.execute(doubleNewline);
     this.state = MultiParser.states.start;
-    this.buffer = new Buffer('\r\n');
-    //this.buffer = new Buffer('');
+    this.buffer = new Buffer(singleNewline);
   } else {
     throw Error('A boundary should be supplied to the multiparser.');
   }
 
+  // Forward all events emitted by the root message to the parser.
   this.current.on('part', function (part) {
     parser.emit('part', part);
   });
-
   this.current.on('trailer', function (message) {
     parser.emit('trailer', message);
   });
-
   this.current.on('data', function (data) {
     parser.emit('data', data);
   });
-
   this.current.on('finish', function () {
     parser.emit('finish');
   });
@@ -77,7 +77,6 @@ var onHeadersComplete = function (major, minor, list) {
     }
   }
 
-  this.complete = true;
   this.multiparser.state = MultiParser.states.start;
 };
 
@@ -92,7 +91,6 @@ MultiParser.prototype.initialize = function () {
   // Reset the parser.
   this.parser = new HTTPParser(HTTPParser.RESPONSE);
   this.parser.multiparser = this;
-  this.parser.complete = false;
 
   // Initialize the HTTP parser.
   this.parser[HTTPParser.kOnHeaders] = onHeaders;
@@ -112,11 +110,21 @@ MultiParser.prototype.multi = function (boundary) {
   this.boundaries.push(boundary);
   this.boundary = boundary;
   this.emit('multi', this.current);
+
+  // Allow for four extra characters after the boundary (two dashes, a
+  // carriage return and a line feed at most). Like this we can check the
+  // presence of a boundary at once and we don't have to cycle the parser
+  // through different states.
+  this.margin = this.boundary.length + 3;
 }
 
 MultiParser.prototype.part = function () {
   this.current = this.path[this.path.length - 1].part();
   this.state = MultiParser.states.headers;
+
+  // Only three bytes of context are needed to find the end of the
+  // headers in the next body part.
+  this.margin = 3;
 }
 
 /**
@@ -128,6 +136,8 @@ MultiParser.prototype.pop = function () {
   // continue using this parser for parsing the body of the parent message.
   this.current = this.path.pop();
   this.boundaries.pop();
+
+  this.margin = this.boundary.length + 3;
 }
 
 MultiParser.prototype.trailer = function () {
@@ -157,6 +167,80 @@ var onData = function (chunk, start, end) {
   return consumed;
 }
 
+
+/**
+ * The process function contains the inner loop of the parsing infrastructure.
+ * It consumes any data which can be guaranteed not to contain a boundary and
+ * processes the next boundary if one can be found. The length of the chunk of
+ * data provided should be longer than the current parser margin, otherwise
+ * the behaviour is undefined.
+ */
+MultiParser.prototype.process = function (data, start) {
+  // The index is a positional variable inside the buffer, while start
+  // represents the number of bytes processed from the new chunk of data.
+  var index, stop;
+
+  var found = false;
+
+  var offset = 0;
+
+  switch (this.state) {
+  case MultiParser.states.start:
+    this.state = MultiParser.states.body;
+    offset = 2;
+  case MultiParser.states.body:
+    // Find the next boundary occurence.
+    index = data.indexOf(this.boundary, start);
+    if (found = index >= 0 && index < data.length - this.margin) {
+      var a, b, c, d;
+
+      stop = index;
+      index += this.boundary.length;
+
+      a = data[index + 0];
+      b = data[index + 1];
+      c = data[index + 2];
+      d = data[index + 3];
+
+      if (a === 13 && b === 10) {
+        start += onData.call(this, data, start + offset, stop);
+        // Start a new body part.
+        this.initialize();
+        this.part();
+        // Advance the position in the current data chunk.
+        start += this.boundary.length;
+      } else if (a === 45 && b === 45 && c === 13 && d === 10) {
+        start += onData.call(this, data, start + offset, stop);
+        // Warn the multipart message about an upcoming trailer.
+        this.trailer();
+        // End the current multipart message.
+        this.pop();
+        // Advance the position in the current data chunk.
+        start += this.boundary.length + 4 + offset;
+      } else {
+        start += onData.call(this, data, start + offset, index) + offset;
+      }
+    } else {
+      start += onData.call(this, data, start + offset, data.length - this.margin) + offset;
+    }
+    break;
+  case MultiParser.states.headers:
+    // Find the next boundary occurence.
+    index = data.indexOf(doubleNewline, start);
+    if (found = index >= 0 && index < data.length - this.margin) {
+      start += onData.call(this, data, start, index + 4) - 2;
+      if (this.state !== MultiParser.states.start) {
+        throw new Error('Failed to transition into headers state to parse a new body part');
+      }
+      this.margin = this.boundary.length + 3;
+    } else {
+      start += onData.call(this, data, start, data.length - this.margin);
+    }
+  }
+
+  return start;
+}
+
 /**
  * Write a chunk of data to the parser.
  */
@@ -165,100 +249,28 @@ MultiParser.prototype.write = function (chunk, encoding, callback) {
 
   // The index is a positional variable inside the buffer, while start
   // represents the number of bytes processed from the new chunk of data.
-  var start = 0, index, shift, stop;
+  var start = 0, shift;
 
-  // The center is a temporary buffer consisting of the concatenated relevant
-  // parts of those chunks. The split buffer contains the current data at which
-  // the parsing should be interrupted.
-  var center, split, data;
+  // The center is a temporary buffer to work with boundaries split over
+  // multiple chunks of data.
+  var center;
 
   var found = false;
 
-  var length, margin, cached, head, tail, offset;
-
-  if (this.state === MultiParser.states.headers) {
-    length = 3;
-  } else {
-    // Allow for four extra characters after the boundary (two dashes, a
-    // carriage return and a line feed at most). Like this we can check the
-    // presence of a boundary at once and we don't have to cycle the parser
-    // through different states.
-    length = this.boundary.length + 3;
-  }
-
-  offset = 0;
-
-  center = Buffer.concat([this.buffer, chunk.slice(0, length)]);
+  center = Buffer.concat([this.buffer, chunk.slice(0, this.margin)]);
 
   // The starting position is negative if the lookbehind buffer is not empty.
   shift = this.buffer.length;
-  start = -shift;
-  data = center;
+  start = 0;
 
-  while (start < data.length - length) {
-    offset = 0;
+  while (start < center.length - this.margin) {
+    start = this.process(center, start);
+  }
 
-    switch (this.state) {
-    case MultiParser.states.start:
-      offset = 2;
-    case MultiParser.states.body:
-      margin = 4;
-      split = this.boundary;
+  start -= shift;
 
-      length = split.length + margin - 1;
-      cached = Math.min(length, data.length);
-
-      // Find the next boundary occurence.
-      index = data.indexOf(split, start + shift);
-      if (found = index >= 0 && index < data.length - length) {
-        start += onData.call(this, data, start + shift + offset, index);
-
-        var a, b, c, d;
-        index += this.boundary.length;
-
-        a = data[index + 0];
-        b = data[index + 1];
-        c = data[index + 2];
-        d = data[index + 3];
-
-        if (a === 13 && b === 10) {
-          this.initialize();
-          this.part();
-          start += this.boundary.length;
-        } else if (a === 45 && b === 45 && c === 13 && d === 10) {
-          this.trailer();
-          this.pop();
-          start += this.boundary.length + 4;
-        } else {
-          onData.call(this, data, index - this.boundary.length, index);
-          start += this.boundary.length;
-        }
-      } else {
-        start += onData.call(this, data, start + shift + offset, data.length - cached);
-      }
-
-      start += offset;
-      break;
-    case MultiParser.states.headers:
-      margin = 0;
-      split = new Buffer('\r\n\r\n');
-
-      length = split.length + margin - 1;
-      cached = Math.min(length, data.length);
-
-      // Find the next boundary occurence.
-      index = data.indexOf(split, start + shift);
-      if (found = index >= 0 && index < data.length - length) {
-        start += onData.call(this, data, start + shift, index + 4) - 2;
-      } else {
-        start += onData.call(this, data, start + shift, data.length - cached);
-      }
-    }
-
-    shift = 0;
-    data = chunk;
-
-    //start += offset;
+  while (start < chunk.length - this.margin) {
+    start = this.process(chunk, start);
   }
 
   // Set a new lookbehind buffer, adding the data that wasn't parsed yet.
@@ -282,7 +294,7 @@ MultiParser.prototype.end = function (chunk, encoding, callback) {
 
 MultiParser.states = {
   headers: 0,
-  transition: 1,
+  start: 1,
   body: 2
 };
 
