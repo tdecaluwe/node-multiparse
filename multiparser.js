@@ -136,7 +136,6 @@ MultiParser.prototype.part = function () {
 MultiParser.prototype.pop = function () {
   // The parser is currently in the body parsing state. This means we can
   // continue using this parser for parsing the body of the parent message.
-  this.current.end();
   this.current = this.path.pop();
   this.boundaries.pop();
 
