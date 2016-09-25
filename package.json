@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "license": "Apache-2.0",
   "description": "A recursive stream parser for multipart HTTP messages",
-  "keywords": ["multipart", "form-data", "http", "parser"],
+  "keywords": ["multipart", "form-data", "formdata", "dicer", "multiparty", "http", "parser"],
   "readme": "README.md",
   "author": {
     "name": "Tom De Caluwé",
@@ -27,7 +27,7 @@
     "chai": "^3.5",
     "sinon": "^1.17",
     "sinon-chai": "^2.8",
-    "mocha": "^2.4",
+    "mocha": "^3.0",
     "istanbul": "^0.4"
   }
 }

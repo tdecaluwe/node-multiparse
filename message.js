@@ -1,4 +1,4 @@
-'use strict'
+'use strict';
 
 var PassThrough = require('stream').PassThrough;
 

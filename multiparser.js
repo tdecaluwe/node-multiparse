@@ -1,4 +1,4 @@
-'use strict'
+'use strict';
 
 var Message = require('./message.js');
 
@@ -49,7 +49,7 @@ var MultiParser = function (boundary) {
   });
 
   parser.parts = this.current.parts;
-}
+};
 
 MultiParser.prototype = Object.create(EventEmitter.prototype);
 
@@ -99,7 +99,7 @@ MultiParser.prototype.initialize = function () {
   this.parser[HTTPParser.kOnHeadersComplete] = onHeadersComplete;
   this.parser[HTTPParser.kOnBody] = onBody;
   this.parser.execute(new Buffer('HTTP/1.1 200 OK'));
-}
+};
 
 /**
  * Initialize a new multipart message. This method should be called when
@@ -118,7 +118,7 @@ MultiParser.prototype.multi = function (boundary) {
   // presence of a boundary at once and we don't have to cycle the parser
   // through different states.
   this.margin = this.boundary.length + 3;
-}
+};
 
 MultiParser.prototype.part = function () {
   this.current = this.path[this.path.length - 1].part();
@@ -127,7 +127,7 @@ MultiParser.prototype.part = function () {
   // Only three bytes of context are needed to find the end of the
   // headers in the next body part.
   this.margin = 3;
-}
+};
 
 /**
  * Close the current multipart message. To be called when encountering the
@@ -141,11 +141,11 @@ MultiParser.prototype.pop = function () {
   this.boundaries.pop();
 
   this.margin = this.boundary.length + 3;
-}
+};
 
 MultiParser.prototype.trailer = function () {
   this.current = this.path[this.path.length - 1].trailer();
-}
+};
 
 var onData = function (chunk, start, end) {
   var data = chunk.slice(start, end);
@@ -168,7 +168,7 @@ var onData = function (chunk, start, end) {
   }
 
   return consumed;
-}
+};
 
 /**
  * The process function contains the inner loop of the parsing infrastructure.
@@ -188,6 +188,7 @@ MultiParser.prototype.process = function (data, start) {
   case MultiParser.states.start:
     this.state = MultiParser.states.body;
     offset = 2;
+    // Continue processing the data in the next case.
   case MultiParser.states.body:
     // Find the next boundary occurence.
     index = data.indexOf(this.boundary, start);
@@ -239,7 +240,7 @@ MultiParser.prototype.process = function (data, start) {
   }
 
   return start;
-}
+};
 
 /**
  * Write a chunk of data to the parser.
@@ -288,7 +289,7 @@ MultiParser.prototype.end = function (chunk, encoding, callback) {
   }
 
   this.emit('finish');
-}
+};
 
 MultiParser.states = {
   headers: 0,

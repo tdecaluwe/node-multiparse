@@ -1,4 +1,4 @@
-'use strict'
+'use strict';
 
 var chai = require('chai');
 
@@ -10,7 +10,7 @@ describe('MultiParser', function () {
   var parser, output, parts, path, current;
   function line(text) {
     parser.write(new Buffer(text + '\r\n'));
-  }
+  };
   beforeEach(function () {
     var boundary = 'boundary';
     parser = new MultiParser(boundary);
@@ -24,7 +24,7 @@ describe('MultiParser', function () {
       current.on('part', function (part) {
         onPart(part);
       });
-    }
+    };
     onPart(parser);
   });
   it('should allow a boundary to skip the newline when the body is empty', function () {
