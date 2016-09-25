@@ -17,6 +17,26 @@ describe('The MultiParser constructor', function () {
   });
 });
 
+describe('The MultiParser stream', function () {
+  var parser, mock;
+  beforeEach(function () {
+    var boundary = 'boundary';
+    parser = new MultiParser(boundary);
+    mock = sinon.mock(parser).expects('write');
+  });
+  it('cannot be ended when the root multipart message is not complete', function () {
+    expect(function () {
+      parser.end();
+    }).to.throw(Error);
+  });
+  it('should write any data provided when being ended', function () {
+    var data = new Buffer('');
+    parser.pop();
+    parser.end(data);
+    expect(mock).to.have.been.calledWith(data);
+  });
+});
+
 describe('The MultiParser caching mechanism', function () {
   var parser, mock;
   beforeEach(function () {
