@@ -11,6 +11,15 @@ var singleNewline = new Buffer('\r\n');
 var doubleNewline = new Buffer('\r\n\r\n');
 
 var MultiParser = function (boundary) {
+  var content;
+
+  if (boundary.headers && boundary.headers['content-type']) {
+    content = ContentType.parse(message.headers['content-type']);
+    if (content.type.slice(0, 9) === 'multipart') {
+      boundary = content.parameters.boundary;
+    }
+  }
+
   var parser = this;
 
   // Set up a path of arrays representing the parts of each of the ancestors of
