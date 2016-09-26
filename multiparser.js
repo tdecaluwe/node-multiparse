@@ -1,6 +1,6 @@
 'use strict';
 
-var Message = require('./message.js');
+var MessagePart = require('./messagepart.js');
 
 var ContentType = require('content-type');
 var EventEmitter = require('events');
@@ -13,7 +13,7 @@ var doubleNewline = new Buffer('\r\n\r\n');
 var MultiParser = function (boundary) {
   var parser = this;
 
-  this.current = new Message();
+  this.current = new MessagePart();
 
   // Set up a path of arrays representing the parts of each of the ancestors of
   // the current message part. The first element is a root array containing the

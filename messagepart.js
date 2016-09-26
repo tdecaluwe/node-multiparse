@@ -2,16 +2,16 @@
 
 var PassThrough = require('stream').PassThrough;
 
-var Message = function () {
+var MessagePart = function () {
   PassThrough.call(this);
   this.headers = {};
   this.parts = [];
 }
 
-Message.prototype = Object.create(PassThrough.prototype);
+MessagePart.prototype = Object.create(PassThrough.prototype);
 
-Message.prototype.part = function () {
-  var part = new Message();
+MessagePart.prototype.part = function () {
+  var part = new MessagePart();
   if (this.parts.length > 0) {
     this.parts[this.parts.length - 1].end();
   }
@@ -20,7 +20,7 @@ Message.prototype.part = function () {
   return part;
 };
 
-Message.prototype.trailer = function () {
+MessagePart.prototype.trailer = function () {
   if (this.parts.length > 0) {
     this.parts[this.parts.length - 1].end();
   }
@@ -28,4 +28,4 @@ Message.prototype.trailer = function () {
   return this;
 };
 
-module.exports = Message;
+module.exports = MessagePart;

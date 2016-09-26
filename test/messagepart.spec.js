@@ -2,12 +2,12 @@
 
 var expect = require('chai').expect;
 
-var Message = require('../message.js');
+var MessagePart = require('../messagepart.js');
 
-describe('Message', function () {
+describe('MessagePart', function () {
   var message;
   beforeEach(function () {
-    message = new Message();
+    message = new MessagePart();
   });
   it('should emit a data event when new data is written', function () {
     var event;
