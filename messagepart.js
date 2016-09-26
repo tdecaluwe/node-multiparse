@@ -10,8 +10,9 @@ var MessagePart = function () {
 
 MessagePart.prototype = Object.create(PassThrough.prototype);
 
-MessagePart.prototype.part = function () {
-  var part = new MessagePart();
+MessagePart.prototype.part = function (part) {
+  part = part || new MessagePart();
+
   if (this.parts.length > 0) {
     this.parts[this.parts.length - 1].end();
   }

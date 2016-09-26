@@ -13,8 +13,6 @@ var doubleNewline = new Buffer('\r\n\r\n');
 var MultiParser = function (boundary) {
   var parser = this;
 
-  this.current = new MessagePart();
-
   // Set up a path of arrays representing the parts of each of the ancestors of
   // the current message part. The first element is a root array containing the
   // root HTTP message as its only part.
@@ -24,12 +22,13 @@ var MultiParser = function (boundary) {
 
   // Initialize a parser for the root message.
   this.initialize();
+
   if (boundary) {
-    this.multi(new Buffer('\r\n--' + boundary));
     // Skip the headers.
     this.parser.execute(doubleNewline);
     this.state = MultiParser.states.start;
     this.buffer = new Buffer(singleNewline);
+    this.multi(new Buffer('\r\n--' + boundary));
   } else {
     throw Error('A boundary should be supplied to the multiparser.');
   }
@@ -79,7 +78,8 @@ var onHeadersComplete = function (major, minor, list) {
     }
   }
 
-  this.multiparser.state = MultiParser.states.start;
+  // Communicate the completion of the headers tot the multiparser.
+  this.multiparser.headers();
 };
 
 var onBody = function (chunk, start, length) {
@@ -93,12 +93,34 @@ MultiParser.prototype.initialize = function () {
   // Reset the parser.
   this.parser = new HTTPParser(HTTPParser.RESPONSE);
   this.parser.multiparser = this;
+  this.parser.execute(new Buffer('HTTP/1.1 200 OK'));
 
+  this.current = new MessagePart();
+
+  // Set up the body callbacks.
+  this.parser[HTTPParser.kOnBody] = onBody;
+};
+
+MultiParser.prototype.part = function () {
   // Initialize the HTTP parser.
+  this.initialize();
+
+  // Set up the header callbacks.
   this.parser[HTTPParser.kOnHeaders] = onHeaders;
   this.parser[HTTPParser.kOnHeadersComplete] = onHeadersComplete;
-  this.parser[HTTPParser.kOnBody] = onBody;
-  this.parser.execute(new Buffer('HTTP/1.1 200 OK'));
+
+  // Put the Parser in the headers state.
+  this.state = MultiParser.states.headers;
+  // Only three bytes of context are needed to find the end of the
+  // headers in the next body part.
+  this.margin = 3;
+};
+
+MultiParser.prototype.headers = function () {
+  // Transition the Parser to the start state.
+  this.state = MultiParser.states.start;
+  // Let the parent message know that we found another part.
+  this.path[this.path.length - 1].part(this.current);
 };
 
 /**
@@ -118,15 +140,6 @@ MultiParser.prototype.multi = function (boundary) {
   // presence of a boundary at once and we don't have to cycle the parser
   // through different states.
   this.margin = this.boundary.length + 3;
-};
-
-MultiParser.prototype.part = function () {
-  this.current = this.path[this.path.length - 1].part();
-  this.state = MultiParser.states.headers;
-
-  // Only three bytes of context are needed to find the end of the
-  // headers in the next body part.
-  this.margin = 3;
 };
 
 /**
@@ -204,8 +217,7 @@ MultiParser.prototype.process = function (data, start) {
 
       if (a === 13 && b === 10) {
         start += onData.call(this, data, start + offset, stop);
-        // Start a new body part.
-        this.initialize();
+        // Initialize a parser to accept a new body part.
         this.part();
         // Advance the position in the current data chunk.
         start += this.boundary.length;
