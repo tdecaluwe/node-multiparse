@@ -20,8 +20,6 @@ var MultiParser = function (boundary) {
     }
   }
 
-  var parser = this;
-
   // Set up a path of arrays representing the parts of each of the ancestors of
   // the current message part. The first element is a root array containing the
   // root HTTP message as its only part.
@@ -42,21 +40,16 @@ var MultiParser = function (boundary) {
     throw Error('A boundary should be supplied to the multiparser.');
   }
 
-  // Forward all events emitted by the root message to the parser.
-  this.current.on('part', function (part) {
-    parser.emit('part', part);
-  });
-  this.current.on('trailer', function (message) {
-    parser.emit('trailer', message);
-  });
-  this.current.on('data', function (data) {
-    parser.emit('data', data);
-  });
-  this.current.on('finish', function () {
-    parser.emit('finish');
-  });
+  var parser = this;
+  var emit = this.current.emit;
 
-  parser.parts = this.current.parts;
+  // Forward all events emitted by the root message to the parser.
+  this.current.emit = function () {
+    emit.apply(this, arguments);
+    parser.emit.apply(parser, arguments);
+  };
+
+  this.parts = this.current.parts;
 };
 
 MultiParser.prototype = Object.create(EventEmitter.prototype);
@@ -194,9 +187,10 @@ var onData = function (chunk, start, end) {
 /**
  * The process function contains the inner loop of the parsing infrastructure.
  * It consumes any data which can be guaranteed not to contain a boundary and
- * processes the next boundary if one can be found. The length of the chunk of
- * data provided should be longer than the current parser margin, otherwise
- * the behaviour is undefined.
+ * processes the next boundary if one can be found. This method should generally
+ * not be called externally. When the length of the chunk of data provided is
+ * shorter than the current parser margin, the behaviour is undefined. The write
+ * function guarantees this is never the case.
  */
 MultiParser.prototype.process = function (data, start) {
   // The index is a positional variable inside the buffer, while start
@@ -307,8 +301,6 @@ MultiParser.prototype.end = function (chunk, encoding, callback) {
   } else {
     this.current.end();
   }
-
-  this.emit('finish');
 };
 
 MultiParser.states = {
