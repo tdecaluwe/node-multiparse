@@ -11,15 +11,6 @@ var singleNewline = new Buffer('\r\n');
 var doubleNewline = new Buffer('\r\n\r\n');
 
 var MultiParser = function (boundary) {
-  var content;
-
-  if (boundary.headers && boundary.headers['content-type']) {
-    content = ContentType.parse(message.headers['content-type']);
-    if (content.type.slice(0, 9) === 'multipart') {
-      boundary = content.parameters.boundary;
-    }
-  }
-
   // Set up a path of arrays representing the parts of each of the ancestors of
   // the current message part. The first element is a root array containing the
   // root HTTP message as its only part.
