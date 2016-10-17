@@ -31,16 +31,7 @@ var MultiParser = function (boundary) {
     throw Error('A boundary should be supplied to the multiparser.');
   }
 
-  var parser = this;
-  var emit = this.current.emit;
-
-  // Forward all events emitted by the root message to the parser.
-  this.current.emit = function () {
-    emit.apply(this, arguments);
-    parser.emit.apply(parser, arguments);
-  };
-
-  this.parts = this.current.parts;
+  this.message = this.current;
 };
 
 MultiParser.prototype = Object.create(EventEmitter.prototype);
@@ -77,6 +68,14 @@ var onHeadersComplete = function (major, minor, list) {
 
 var onBody = function (chunk, start, length) {
   this.multiparser.current.write(chunk.slice(start, start + length));
+};
+
+/**
+ * Allow pipe chains by forwarding a pipe call on the parser to the underlying
+ * root message.
+ */
+MultiParser.prototype.pipe = function (stream, options) {
+  this.message.pipe(stream, options);
 };
 
 /**
@@ -126,7 +125,7 @@ MultiParser.prototype.multi = function (boundary) {
   this.path.push(this.current);
   this.boundaries.push(boundary);
   this.boundary = boundary;
-  this.emit('multi', this.current);
+  this.current.emit('multi');
 
   // Allow for four extra characters after the boundary (two dashes, a
   // carriage return and a line feed at most). Like this we can check the
@@ -290,7 +289,7 @@ MultiParser.prototype.end = function (chunk, encoding, callback) {
   if (this.path.length > 0) {
     this.emit('error', Error('Not all messages were closed'));
   } else {
-    this.current.end();
+    this.message.end();
   }
 };
 
