@@ -48,7 +48,8 @@ Class | Description
 <a name="MultiParser"></a>
 ### MultiParser
 
-The `MultiParser` constructor accepts one mandatory string argument to be used as the boundary of the message being parsed:
+The `MultiParser` constructor accepts one mandatory string argument to be used
+as the boundary of the message being parsed:
 
 ```
 new MultiParser(boundary)
