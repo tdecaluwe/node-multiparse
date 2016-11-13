@@ -10,6 +10,7 @@ describe('MultiParser', function () {
   var parser, output, parts, path, current;
   function line(text) {
     parser.write(new Buffer(text + '\r\n'));
+    return line;
   };
   beforeEach(function () {
     var boundary = 'boundary';
@@ -25,14 +26,14 @@ describe('MultiParser', function () {
         onPart(part);
       });
     };
-    onPart(parser);
+    onPart(parser.message);
   });
   it('should allow a boundary to skip the newline when the body is empty', function () {
     line('--boundary--');
     expect( function () { parser.end(); }).not.to.throw();
-    expect(parser.parts.length).to.equal(0);
+    expect(parser.message.parts.length).to.equal(0);
   });
-  it('should accept a simple multipart/form-data message', function () {
+  it('should accept a multipart/form-data message', function () {
     line('');
     line('--boundary');
     line('Content-Disposition: form-data; name="text"');
@@ -52,17 +53,21 @@ describe('MultiParser', function () {
     line('');
     line('--boundary--');
 
-    expect(parser.parts.length).to.equal(3);
-    expect(Object.keys(parser.parts[0].headers).length).to.equal(1);
-    expect(parser.parts[0].headers['content-disposition']).to.equal('form-data; name="text"');
-    expect(parser.parts[0].body).to.equal('text default');
-    expect(Object.keys(parser.parts[1].headers).length).to.equal(2);
-    expect(parser.parts[1].headers['content-disposition']).to.equal('form-data; name="file1"; filename="a.txt"');
-    expect(parser.parts[1].headers['content-type']).to.equal('text/plain');
-    expect(parser.parts[1].body).to.equal('Content of a.txt.\r\n');
-    expect(Object.keys(parser.parts[2].headers).length).to.equal(2);
-    expect(parser.parts[2].headers['content-disposition']).to.equal('form-data; name="file2"; filename="a.html"');
-    expect(parser.parts[2].headers['content-type']).to.equal('text/html');
-    expect(parser.parts[2].body).to.equal('<!DOCTYPE html><title>Content of a.html.</title>\r\n');
+    parser.message.on('end', function () {
+      expect(parser.message.parts.length).to.equal(3);
+      expect(Object.keys(parser.message.parts[0].headers).length).to.equal(1);
+      expect(parser.message.parts[0].headers['content-disposition']).to.equal('form-data; name="text"');
+      expect(parser.message.parts[0].body).to.equal('text default');
+      expect(Object.keys(parser.message.parts[1].headers).length).to.equal(2);
+      expect(parser.message.parts[1].headers['content-disposition']).to.equal('form-data; name="file1"; filename="a.txt"');
+      expect(parser.message.parts[1].headers['content-type']).to.equal('text/plain');
+      expect(parser.message.parts[1].body).to.equal('Content of a.txt.\r\n');
+      expect(Object.keys(parser.message.parts[2].headers).length).to.equal(2);
+      expect(parser.message.parts[2].headers['content-disposition']).to.equal('form-data; name="file2"; filename="a.html"');
+      expect(parser.message.parts[2].headers['content-type']).to.equal('text/html');
+      expect(parser.message.parts[2].body).to.equal('<!DOCTYPE html><title>Content of a.html.</title>\r\n');
+    });
+
+    expect( function () { parser.end(); }).not.to.throw();
   });
 });
