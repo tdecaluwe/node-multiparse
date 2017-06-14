@@ -3,18 +3,19 @@
 var Readable = require('stream').Readable;
 
 var MessagePart = function (parser) {
-  Readable.call(this, { read: read });
+  Readable.call(this, {
+    read: function (size) {
+      this.emit('read', size);
+      parser.pull(size);
+      parser.emit('drain');
+    }
+  });
 
-  this.source = parser;
   this.headers = {};
   this.parts = [];
 };
 
 MessagePart.prototype = Object.create(Readable.prototype);
-
-function read(size) {
-  this.source.pull(size);
-}
 
 function closePrevious() {
   if (this.parts.length > 0) {

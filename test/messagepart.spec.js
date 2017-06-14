@@ -28,7 +28,9 @@ describe('MessagePart', function () {
     var event;
     message.on('data', function () { event = 'data'; });
     message.push('data');
-    setTimeout(function () { console.log(event); expect(event).to.equal('data'); done(); }, 1000);
+    setImmediate(function () {
+      expect(event).to.equal('data'); done();
+    });
   });
   it('should emit a part event when adding a part', function () {
     var event;

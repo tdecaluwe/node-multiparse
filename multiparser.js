@@ -1,4 +1,4 @@
-'use strict';
+'use strict'
 
 var MessagePart = require('./messagepart.js');
 
@@ -11,6 +11,12 @@ var singleNewline = new Buffer('\r\n');
 var doubleNewline = new Buffer('\r\n\r\n');
 
 var MultiParser = function (boundary) {
+  // Set up a path of arrays representing the parts of each of the ancestors of
+  // the current message part. The first element is a root array containing the
+  // root HTTP message as its only part.
+  this.path = [];
+  // And don't forget to keep track of the boundaries separating their parts.
+  this.boundaries = [];
   // Initialize a parser for the root message.
   this.initialize();
 
@@ -62,18 +68,17 @@ var onHeadersComplete = function (major, minor, list) {
     if (content.type.slice(0, 9) === 'multipart' && boundary) {
       // The CR and LF characters should be considered part of the boundary.
       this.multiparser.multi(new Buffer('\r\n--' + boundary));
-      this.multiparser.margin = this.boundary.length + 3;
     }
   }
 
   // Communicate the completion of the headers to the multiparser.
   this.multiparser.headers();
-  // Transition the Parser to the start state.
-  this.multiparser.state = MultiParser.states.start;
 };
 
 var onBody = function (chunk, start, length) {
-  this.multiparser.current.push(chunk.slice(start, start + length));
+  var message = this.multiparser.current;
+
+  this.result = message.push(chunk.slice(start, start + length));
 };
 
 /**
@@ -83,6 +88,7 @@ MultiParser.prototype.initialize = function () {
   // Reset the parser.
   this.parser = new HTTPParser(HTTPParser.RESPONSE);
   this.parser.multiparser = this;
+  this.parser.result = true;
   this.parser.execute(new Buffer('HTTP/1.1 200 OK'));
 
   this.current = new MessagePart(this);
@@ -107,6 +113,8 @@ MultiParser.prototype.part = function () {
 };
 
 MultiParser.prototype.headers = function () {
+  // Transition the Parser to the start state.
+  this.state = MultiParser.states.start;
   // Let the parent message know that we found another part.
   this.path[this.path.length - 1].part(this.current);
 };
@@ -128,6 +136,23 @@ MultiParser.prototype.multi = function (boundary) {
   // presence of a boundary at once and we don't have to cycle the parser
   // through different states.
   this.margin = this.boundary.length + 3;
+};
+
+/**
+ * Close the current multipart message. To be called when encountering the
+ * closing multipart boundary.
+ */
+MultiParser.prototype.pop = function () {
+  // The parser is currently in the body parsing state. This means we can
+  // continue using this parser for parsing the body of the parent message.
+  this.current = this.path.pop();
+  this.boundaries.pop();
+
+  this.margin = this.boundary.length + 3;
+};
+
+MultiParser.prototype.trailer = function () {
+  this.current = this.path[this.path.length - 1].trailer();
 };
 
 var onData = function (chunk, start, end) {
@@ -199,7 +224,6 @@ MultiParser.prototype.process = function (data, start) {
         this.trailer();
         // End the current message part.
         this.pop();
-        this.margin = this.boundary.length + 3;
         // Advance the position in the current data chunk.
         start += this.boundary.length + 4 + offset;
       } else {
