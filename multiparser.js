@@ -37,13 +37,20 @@ var MultiParser = function (boundary) {
   }
 
   this.message = this.current;
+
+  var that = this;
+
+  this.listener = function (part) {
+    if (part === that.current) {
+      that.emit('drain');
+    }
+  };
+
+
+  this.message.on('read', this.listener);
 };
 
 MultiParser.prototype = Object.create(EventEmitter.prototype);
-
-MultiParser.prototype.pull = function (size) {
-  this.emit('drain');
-};
 
 var onHeaders = function (list) {
   var key;
@@ -91,15 +98,19 @@ MultiParser.prototype.initialize = function () {
   this.parser.result = true;
   this.parser.execute(new Buffer('HTTP/1.1 200 OK'));
 
-  this.current = new MessagePart(this);
+  this.current = new MessagePart();
 
   // Set up the body callbacks.
   this.parser[HTTPParser.kOnBody] = onBody;
 };
 
 MultiParser.prototype.part = function () {
+  // Remove the backpressure listener from the current part.
+  this.current.removeListener('read', this.listener);
   // Initialize the HTTP parser.
   this.initialize();
+  // Set up a new backpressure listener.
+  this.current.on('read', this.listener);
 
   // Set up the header callbacks.
   this.parser[HTTPParser.kOnHeaders] = onHeaders;
@@ -145,7 +156,12 @@ MultiParser.prototype.multi = function (boundary) {
 MultiParser.prototype.pop = function () {
   // The parser is currently in the body parsing state. This means we can
   // continue using this parser for parsing the body of the parent message.
+
+  // Set the parent message as the current message.
+  this.current.removeListener('read', this.listener);
   this.current = this.path.pop();
+  this.current.on('read', this.listener);
+
   this.boundaries.pop();
 
   this.margin = this.boundary.length + 3;
@@ -283,6 +299,9 @@ MultiParser.prototype.write = function (chunk, encoding, callback) {
   // Set a new lookbehind buffer, adding the data that wasn't parsed yet.
   center = Buffer.concat([this.buffer, chunk.slice(Math.max(0, start))]);
   this.buffer = center.slice(center.length - chunk.length + start);
+
+  console.log('returning ' + this.parser.result);
+  return this.parser.result;
 };
 
 MultiParser.prototype.end = function (chunk, encoding, callback) {

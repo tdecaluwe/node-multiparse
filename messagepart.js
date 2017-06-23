@@ -3,11 +3,13 @@
 var Readable = require('stream').Readable;
 
 var MessagePart = function (parser) {
+  var that = this;
+
   Readable.call(this, {
+    highWaterMark: 10,
     read: function (size) {
-      this.emit('read', size);
-      parser.pull(size);
-      parser.emit('drain');
+      console.log('read from', that.headers);
+      that.emit('read', size);
     }
   });
 
@@ -38,6 +40,22 @@ MessagePart.prototype.trailer = function () {
 
   this.emit('trailer', this);
   return this;
+};
+
+MessagePart.prototype.ignore = function () {
+  this.resume();
+  this.on('part', function (part) {
+    part.ignore();
+  });
+
+  return this;
+};
+
+MessagePart.prototype.ignore = function () {
+  this.resume();
+  this.on('part', function (part) {
+    part.ignore();
+  });
 };
 
 module.exports = MessagePart;

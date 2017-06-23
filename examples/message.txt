@@ -1,0 +1,15 @@
+This is a multipart message in MIME format.
+
+--boundary text
+Content-Type: text/plain
+
+this is the body text
+
+--boundary text
+Content-Type: text/plain
+Content-Disposition: attachment;
+        filename="test.txt"
+
+this is the attachment text
+
+--boundary text--
