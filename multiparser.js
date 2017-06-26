@@ -10,7 +10,20 @@ var HTTPParser = process.binding('http_parser').HTTPParser;
 var singleNewline = new Buffer('\r\n');
 var doubleNewline = new Buffer('\r\n\r\n');
 
-var MultiParser = function (boundary) {
+var MultiParser = function (boundary, options) {
+  var that = this;
+
+  this.drain = function (size) {
+    //console.log('listening with state ' + that.parser.result);
+    if (this === that.current && !that.parser.result) {
+      that.emit('drain');
+    }
+  }
+
+  this.initialize = function () {
+    MultiParser.prototype.initialize.call(this, options);
+  };
+
   // Set up a path of arrays representing the parts of each of the ancestors of
   // the current message part. The first element is a root array containing the
   // root HTTP message as its only part.
@@ -24,8 +37,8 @@ var MultiParser = function (boundary) {
     // Skip the headers.
     this.parser.execute(doubleNewline);
     this.state = MultiParser.states.start;
-    this.buffer = new Buffer(singleNewline);
-    this.multi(new Buffer('\r\n--' + boundary));
+    this.buffer = Buffer.from(singleNewline);
+    this.multi(Buffer.from('\r\n--' + boundary));
 
     // Allow for four extra characters after the boundary (two dashes, a
     // carriage return and a line feed at most). Like this we can check the
@@ -35,26 +48,12 @@ var MultiParser = function (boundary) {
   } else {
     throw Error('A boundary should be supplied to the multiparser.');
   }
-
-  this.message = this.current;
-
-  var that = this;
-
-  this.listener = function (part) {
-    if (part === that.current) {
-      that.emit('drain');
-    }
-  };
-
-
-  this.message.on('read', this.listener);
 };
 
 MultiParser.prototype = Object.create(EventEmitter.prototype);
 
 var onHeaders = function (list) {
   var key;
-  var content;
 
   for (var i = 0; i < list.length; i = i + 2) {
     key = list[i].toString().toLowerCase();
@@ -64,22 +63,27 @@ var onHeaders = function (list) {
 
 var onHeadersComplete = function (major, minor, list) {
   var message = this.multiparser.current;
-  var content, boundary, last;
+  var parent = this.multiparser.path[this.multiparser.path.length - 1];
+  var header = message.headers['content-type'];
+  var content, boundary;
 
   onHeaders.call(this, list);
 
   // Check whether a content-type header was received.
-  if (message.headers['content-type']) {
-    content = ContentType.parse(message.headers['content-type']);
+  if (header) {
+    content = ContentType.parse(header);
     boundary = content.parameters.boundary;
-    if (content.type.slice(0, 9) === 'multipart' && boundary) {
+    if (content.type.slice(0, 10) === 'multipart/' && boundary) {
       // The CR and LF characters should be considered part of the boundary.
       this.multiparser.multi(new Buffer('\r\n--' + boundary));
     }
   }
 
-  // Communicate the completion of the headers to the multiparser.
-  this.multiparser.headers();
+  // Transition the MultiParser to the start state.
+  this.multiparser.state = MultiParser.states.start;
+  // Let the parent message know that we found another part.
+  parent.parts.push(message);
+  parent.emit('part', message);
 };
 
 var onBody = function (chunk, start, length) {
@@ -89,28 +93,36 @@ var onBody = function (chunk, start, length) {
 };
 
 /**
+ * Put the current message stream in flowing mode.
+ */
+MultiParser.prototype.flow = function () {
+  this.current.resume();
+};
+
+/**
  * Initialize a new message parser.
  */
-MultiParser.prototype.initialize = function () {
+MultiParser.prototype.initialize = function (options) {
   // Reset the parser.
   this.parser = new HTTPParser(HTTPParser.RESPONSE);
   this.parser.multiparser = this;
   this.parser.result = true;
   this.parser.execute(new Buffer('HTTP/1.1 200 OK'));
 
-  this.current = new MessagePart();
+  this.current = new MessagePart(options);
+  this.current.on('read', this.drain);
 
   // Set up the body callbacks.
   this.parser[HTTPParser.kOnBody] = onBody;
 };
 
 MultiParser.prototype.part = function () {
-  // Remove the backpressure listener from the current part.
-  this.current.removeListener('read', this.listener);
-  // Initialize the HTTP parser.
+  this.current.removeListener('read', this.drain);
+  if (this.current !== this.path[this.path.length - 1]) {
+    this.current.push(null);
+  }
+
   this.initialize();
-  // Set up a new backpressure listener.
-  this.current.on('read', this.listener);
 
   // Set up the header callbacks.
   this.parser[HTTPParser.kOnHeaders] = onHeaders;
@@ -123,20 +135,12 @@ MultiParser.prototype.part = function () {
   this.margin = 3;
 };
 
-MultiParser.prototype.headers = function () {
-  // Transition the Parser to the start state.
-  this.state = MultiParser.states.start;
-  // Let the parent message know that we found another part.
-  this.path[this.path.length - 1].part(this.current);
-};
-
 /**
  * Initialize a new multipart message. This method should be called when
  * encountering a multipart content type, as this requires the body to include
  * the closing boundary.
  */
 MultiParser.prototype.multi = function (boundary) {
-  // Add the parts array to the current path in the message tree.
   this.path.push(this.current);
   this.boundaries.push(boundary);
   this.boundary = boundary;
@@ -158,9 +162,9 @@ MultiParser.prototype.pop = function () {
   // continue using this parser for parsing the body of the parent message.
 
   // Set the parent message as the current message.
-  this.current.removeListener('read', this.listener);
+  this.current.removeListener('read', this.drain);
   this.current = this.path.pop();
-  this.current.on('read', this.listener);
+  this.current.on('read', this.drain);
 
   this.boundaries.pop();
 
@@ -270,7 +274,14 @@ MultiParser.prototype.process = function (data, start) {
  * Write a chunk of data to the parser.
  */
 MultiParser.prototype.write = function (chunk, encoding, callback) {
-  chunk = new Buffer(chunk);
+  if (encoding instanceof Function) {
+    callback = encoding;
+    encoding = undefined;
+  }
+
+  if (!(chunk instanceof Buffer || chunk instanceof Uint8Array)) {
+    chunk = Buffer.from(chunk, encoding);
+  }
 
   // The index is a positional variable inside the buffer, while start
   // represents the number of bytes processed from the new chunk of data.
@@ -300,7 +311,10 @@ MultiParser.prototype.write = function (chunk, encoding, callback) {
   center = Buffer.concat([this.buffer, chunk.slice(Math.max(0, start))]);
   this.buffer = center.slice(center.length - chunk.length + start);
 
-  console.log('returning ' + this.parser.result);
+  if (callback instanceof Function) {
+    callback();
+  }
+
   return this.parser.result;
 };
 
@@ -312,7 +326,7 @@ MultiParser.prototype.end = function (chunk, encoding, callback) {
   if (this.path.length > 0) {
     this.emit('error', Error('Not all messages were closed'));
   } else {
-    this.message.push(null);
+    this.current.push(null);
   }
 };
 

@@ -14,7 +14,8 @@
     "node": ">=4.0"
   },
   "scripts": {
-    "test": "istanbul cover _mocha"
+    "cover": "istanbul cover _mocha",
+    "test": "mocha --recursive"
   },
   "repository": {
     "type": "git",

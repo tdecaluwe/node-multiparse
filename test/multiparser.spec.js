@@ -92,7 +92,7 @@ describe('The MultiParser boundary processor', function () {
       // Check the initial state.
       expect(parser.margin).to.equal(15);
       expect(parser.state).to.equal(MultiParser.states.start);
-      parser.message.on('data', function (data) {
+      parser.current.on('data', function (data) {
         output += data.toString();
       });
     });
@@ -139,7 +139,7 @@ describe('The MultiParser boundary processor', function () {
   describe('in the header state', function () {
     var part;
     beforeEach(function () {
-      parser.message.on('part', function (message) {
+      parser.current.on('part', function (message) {
         part = message;
       });
       MultiParser.prototype.initialize.call(parser);

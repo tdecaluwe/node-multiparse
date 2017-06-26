@@ -11,5 +11,6 @@ Content-Disposition: attachment;
         filename="test.txt"
 
 this is the attachment text
+it contains a whole bunch of information
 
 --boundary text--

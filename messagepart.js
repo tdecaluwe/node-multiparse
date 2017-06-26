@@ -2,16 +2,21 @@
 
 var Readable = require('stream').Readable;
 
-var MessagePart = function (parser) {
+/**
+ * Construct a new multipart message part.
+ *
+ * @constructs MessagePart
+ * @param {Object} options - Options for the underlying Readable stream.
+ */
+var MessagePart = function (options) {
   var that = this;
 
-  Readable.call(this, {
-    highWaterMark: 10,
-    read: function (size) {
-      console.log('read from', that.headers);
-      that.emit('read', size);
-    }
-  });
+  options = options || {};
+  options.read = function (size) {
+    that.emit('read', size);
+  };
+
+  Readable.call(this, options);
 
   this.headers = {};
   this.parts = [];
@@ -42,6 +47,9 @@ MessagePart.prototype.trailer = function () {
   return this;
 };
 
+/**
+ * Ignore this message and all of it's parts.
+ */
 MessagePart.prototype.ignore = function () {
   this.resume();
   this.on('part', function (part) {
@@ -49,13 +57,6 @@ MessagePart.prototype.ignore = function () {
   });
 
   return this;
-};
-
-MessagePart.prototype.ignore = function () {
-  this.resume();
-  this.on('part', function (part) {
-    part.ignore();
-  });
 };
 
 module.exports = MessagePart;
