@@ -52,46 +52,6 @@ var MultiParser = function (boundary, options) {
 
 MultiParser.prototype = Object.create(EventEmitter.prototype);
 
-var onHeaders = function (list) {
-  var key;
-
-  for (var i = 0; i < list.length; i = i + 2) {
-    key = list[i].toString().toLowerCase();
-    this.multiparser.current.headers[key] = list[i + 1];
-  }
-};
-
-var onHeadersComplete = function (major, minor, list) {
-  var message = this.multiparser.current;
-  var parent = this.multiparser.path[this.multiparser.path.length - 1];
-  var header = message.headers['content-type'];
-  var content, boundary;
-
-  onHeaders.call(this, list);
-
-  // Check whether a content-type header was received.
-  if (header) {
-    content = ContentType.parse(header);
-    boundary = content.parameters.boundary;
-    if (content.type.slice(0, 10) === 'multipart/' && boundary) {
-      // The CR and LF characters should be considered part of the boundary.
-      this.multiparser.multi(new Buffer('\r\n--' + boundary));
-    }
-  }
-
-  // Transition the MultiParser to the start state.
-  this.multiparser.state = MultiParser.states.start;
-  // Let the parent message know that we found another part.
-  parent.parts.push(message);
-  parent.emit('part', message);
-};
-
-var onBody = function (chunk, start, length) {
-  var message = this.multiparser.current;
-
-  this.result = message.push(chunk.slice(start, start + length));
-};
-
 /**
  * Put the current message stream in flowing mode.
  */
@@ -103,9 +63,10 @@ MultiParser.prototype.flow = function () {
  * Initialize a new message parser.
  */
 MultiParser.prototype.initialize = function (options) {
+  var that = this;
+
   // Reset the parser.
   this.parser = new HTTPParser(HTTPParser.RESPONSE);
-  this.parser.multiparser = this;
   this.parser.result = true;
   this.parser.execute(new Buffer('HTTP/1.1 200 OK'));
 
@@ -113,10 +74,16 @@ MultiParser.prototype.initialize = function (options) {
   this.current.on('read', this.drain);
 
   // Set up the body callbacks.
-  this.parser[HTTPParser.kOnBody] = onBody;
+  this.parser[HTTPParser.kOnBody] = function (chunk, start, length) {
+    var message = that.current;
+
+    this.result = message.push(chunk.slice(start, start + length));
+  };
 };
 
 MultiParser.prototype.part = function () {
+  var that = this;
+
   this.current.removeListener('read', this.drain);
   if (this.current !== this.path[this.path.length - 1]) {
     this.current.push(null);
@@ -125,8 +92,39 @@ MultiParser.prototype.part = function () {
   this.initialize();
 
   // Set up the header callbacks.
-  this.parser[HTTPParser.kOnHeaders] = onHeaders;
-  this.parser[HTTPParser.kOnHeadersComplete] = onHeadersComplete;
+  this.parser[HTTPParser.kOnHeaders] = function (list) {
+    var key;
+
+    for (var i = 0; i < list.length; i = i + 2) {
+      key = list[i].toString().toLowerCase();
+      that.current.headers[key] = list[i + 1];
+    }
+  };
+
+  this.parser[HTTPParser.kOnHeadersComplete] = function (major, minor, list) {
+    var message = that.current;
+    var parent = that.path[that.path.length - 1];
+    var header = message.headers['content-type'];
+    var content, boundary;
+
+    this[HTTPParser.kOnHeaders].call(this, list);
+
+    // Check whether a content-type header was received.
+    if (header) {
+      content = ContentType.parse(header);
+      boundary = content.parameters.boundary;
+      if (content.type.slice(0, 10) === 'multipart/' && boundary) {
+        // The CR and LF characters should be considered part of the boundary.
+        that.multi(new Buffer('\r\n--' + boundary));
+      }
+    }
+
+    // Transition the MultiParser to the start state.
+    that.state = MultiParser.states.start;
+    // Let the parent message know that we found another part.
+    parent.parts.push(message);
+    parent.emit('part', message);
+  };
 
   // Put the Parser in the headers state.
   this.state = MultiParser.states.headers;
